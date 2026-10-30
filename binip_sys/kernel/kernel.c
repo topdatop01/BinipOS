@@ -3,7 +3,7 @@
 
 struct limine_base_revision_request
 {
-    uint64_t id;
+    uint64_t id[2];
     uint64_t revision;
 };
 
@@ -14,7 +14,7 @@ struct limine_base_revision_response
 
 struct limine_terminal_request
 {
-    uint64_t id;
+    uint64_t id[2];
     uint64_t revision;
     uint64_t response;
 };
@@ -68,26 +68,25 @@ void print(const char *str)
 
     void (*limine_write)(struct limine_terminal *, const char *, uint64_t) = (void *)resp->write;
 
-    limine_write(resp->terminals, str, strlen(str));
+    limine_write(resp->terminals[0], str, strlen(str));
 }
 
 void _start(void)
 {
     if (base_revision_request.revision == 0) 
     {
-        asm volatile ("cli");
-        for (;;) 
-        { 
-            asm volatile ("hlt"); 
+        __asm__ __volatile__ ("cli");
+        for (;;)
+        {
+            __asm__ __volatile__ ("hlt");
         }
     }
 
-    print("Hello World!\n");
+    print("Hello World!");
 
-    asm volatile ("cli");
-    for (;;) 
-    { 
-        asm volatile ("hlt"); 
+    __asm__ __volatile__ ("cli");
+    for (;;)
+    {
+        __asm__ __volatile__ ("hlt");
     }
 }
-
