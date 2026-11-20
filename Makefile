@@ -1,33 +1,60 @@
-CC = gcc
-LD = ld
-CFLAGS = -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fPIE -m64 -march=x86-64
+CC      = gcc
+AS      = nasm
+LD      = ld
+
+CFLAGS  = -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check \
+          -fno-lto -fPIE -m64 -march=x86-64 -Wall -Wextra -Ibinip_sys
+ASFLAGS = -f elf64
 LDFLAGS = -T linker.ld -static -nostdlib --no-warn-rwx-segments
 
-all: binipos.iso
+BUILD_DIR  = build
+OUTPUT_DIR = output
+ISO_DIR    = $(BUILD_DIR)/iso_root
 
-binip_sys/kernel/kernel.o: binip_sys/kernel/kernel.c
-	$(CC) -c binip_sys/kernel/kernel.c -o binip_sys/kernel/kernel.o $(CFLAGS)
+KERNEL     = $(OUTPUT_DIR)/binipos.elf
+ISO        = $(OUTPUT_DIR)/binipos.iso
 
-binipos.elf: binip_sys/kernel/kernel.o
-	$(LD) $(LDFLAGS) binip_sys/kernel/kernel.o -o binipos.elf
+# Automatically find all .c and .asm files inside binip_sys/
+C_SRCS     = $(shell find binip_sys -name '*.c')
+ASM_SRCS   = $(shell find binip_sys -name '*.asm')
 
-binipos.iso: binipos.elf limine.cfg
-	rm -rf iso_root
-	mkdir -p iso_root/boot/limine
-	cp binipos.elf iso_root/
-	cp limine.cfg iso_root/
-	cp limine.cfg iso_root/boot/limine/
-	cp /usr/share/limine/limine-bios.sys iso_root/
-	cp /usr/share/limine/limine-bios.sys iso_root/boot/limine/
-	cp /usr/share/limine/limine-bios-cd.bin iso_root/
-	xorriso -as mkisofs -R -r -J -allow-lowercase -b limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table iso_root -o binipos.iso
-	limine bios-install binipos.iso --force
+OBJS       = $(patsubst %.c,$(BUILD_DIR)/%.o,$(C_SRCS)) \
+             $(patsubst %.asm,$(BUILD_DIR)/%.o,$(ASM_SRCS))
 
-run: binipos.iso
+.PHONY: all run clean
+
+all: $(ISO)
+
+$(BUILD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/%.o: %.asm
+	@mkdir -p $(dir $@)
+	$(AS) $(ASFLAGS) $< -o $@
+
+$(KERNEL): $(OBJS) linker.ld
+	@mkdir -p $(OUTPUT_DIR)
+	$(LD) $(LDFLAGS) $(OBJS) -o $@
+
+$(ISO): $(KERNEL) limine.conf
+	@rm -rf $(ISO_DIR)
+	@mkdir -p $(ISO_DIR)/boot/limine \
+	          $(ISO_DIR)/binip_sys/kernel \
+	          $(ISO_DIR)/binip_sys/drivers \
+	          $(ISO_DIR)/binip_sys/biots \
+	          $(OUTPUT_DIR)
+	cp $(KERNEL) $(ISO_DIR)/binip_sys/kernel/
+	cp limine.conf $(ISO_DIR)/boot/limine/
+	cp /usr/share/limine/limine-bios.sys $(ISO_DIR)/boot/limine/
+	cp /usr/share/limine/limine-bios-cd.bin $(ISO_DIR)/boot/limine/
+	xorriso -as mkisofs -R -r -J -allow-lowercase -b boot/limine/limine-bios-cd.bin \
+		-no-emul-boot -boot-load-size 4 -boot-info-table $(ISO_DIR) -o $(ISO)
+	limine bios-install $(ISO) --force
+
+run: $(ISO)
 	-killall qemu-system-x86_64 2>/dev/null || true
-	qemu-system-x86_64 -hda binipos.iso -vnc :0 -vga std &
-	sleep 1
-	vncviewer localhost:5900
+	qemu-system-x86_64 -cdrom $(ISO) -serial stdio
 
 clean:
-	rm -rf binip_sys/kernel/kernel.o binipos.elf iso_root binipos.iso
+	rm -rf $(BUILD_DIR) $(OUTPUT_DIR) binip_sys/**/*.o binipos.elf binipos.iso iso_root
